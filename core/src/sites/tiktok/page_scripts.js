@@ -672,7 +672,11 @@
       'input[aria-label*="Search" i]',
     ]);
     const visibleQuery = String(searchInput && searchInput.value || '').trim();
-    const queryHydrated = !query || visibleQuery.localeCompare(query, undefined, { sensitivity: 'accent' }) === 0;
+    // TikTok's sidebar search box can read back empty on a rendered results page, so the
+    // committed `?q=` URL also proves the query (as dy's searchState already accepts).
+    const urlQuery = String(new URLSearchParams(location.search).get('q') || '').trim();
+    const matchesQuery = (value) => value.localeCompare(query, undefined, { sensitivity: 'accent' }) === 0;
+    const queryHydrated = !query || matchesQuery(visibleQuery) || (location.pathname.replace(/\/$/, '') === '/search' && matchesQuery(urlQuery));
     const cards = videoCards({ limit: 3 });
     const bodyText = text(document.body);
     const emptyState = firstVisible([
