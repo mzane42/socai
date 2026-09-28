@@ -5,6 +5,7 @@
 #   scripts/local-update.sh          rebase on a new upstream tag if any, rebuild if the
 #                                    installed binary lacks the patch, else do nothing
 #   scripts/local-update.sh --force  rebuild and reinstall even when up to date
+#   scripts/local-update.sh --auto   for launchd: skip while socai is collecting, notify on change/failure
 #
 # Never pushes. After a rebase, push yourself: git push --force-with-lease origin fix/tiktok-sidebar-search
 set -euo pipefail
@@ -16,7 +17,22 @@ QUERY_CHECK=core/src/sites/tiktok/page_scripts.js
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 export SOCAI_TELEMETRY=0 SOCAI_TELEMETRY_QUERY_TEXT=0 SOCAI_NO_UPDATE_CHECK=1
 
-die() { echo "local-update: $*" >&2; exit 1; }
+FORCE=0 AUTO=0
+for arg in "$@"; do case "$arg" in --force) FORCE=1 ;; --auto) AUTO=1 ;; *) echo "unknown option: $arg" >&2; exit 2 ;; esac; done
+
+notify() { [ "$AUTO" = 1 ] && osascript -e "display notification \"$1\" with title \"socai local-update\"" >/dev/null 2>&1 || true; }
+die() { echo "local-update: $*" >&2; notify "FAILED: $*"; exit 1; }
+echo "== $(date '+%F %T')"
+trap 'notify "FAILED at line $LINENO (see log)"' ERR
+
+# `socai stop` below would kill a running collection (shared Chrome): never run while one is active.
+if [ "$AUTO" = 1 ]; then
+  if pgrep -f '/socai (tiktok|instagram|linkedin|x|xhs|dy) |jev-social\.js (discover|profile|media|search)' >/dev/null \
+    || [ -n "$(find "$HOME/.socai/runs" -mindepth 1 -maxdepth 1 -mmin -10 2>/dev/null | head -1)" ]; then
+    echo "socai busy (collection running or run in the last 10 min), skipped."
+    exit 0
+  fi
+fi
 patched() { [ -f "$1" ] && grep -aq "$MARKER" "$1"; }
 version() { "$1" --version 2>/dev/null | awk '{print "v"$2}'; }
 
@@ -40,7 +56,7 @@ if [ "$latest" != "$base" ]; then
   fi
   echo "rebasing $BRANCH from $base onto $latest"
   git rebase -q --onto "$latest" "$base" "$BRANCH" || { git rebase --abort; die "rebase conflict: resolve by hand (git rebase --onto $latest $base $BRANCH)."; }
-elif [ "${1:-}" != "--force" ] && [ "$installed" = "$base" ] && patched "$BIN"; then
+elif [ "$FORCE" = 0 ] && [ "$installed" = "$base" ] && patched "$BIN"; then
   echo "up to date, nothing to do."
   exit 0
 fi
@@ -57,5 +73,10 @@ patched "$built" || die "built binary lacks the patch marker; not installing."
 cp "$built" "$BIN"
 patched "$BIN" && [ "$(version "$BIN")" = "$latest" ] || die "install check failed; previous binary kept at $BIN.previous."
 echo "installed $latest (patched) → $BIN   (previous: $BIN.previous)"
-[ "$latest" != "$base" ] && echo "now push the rebased branch: git push --force-with-lease origin $BRANCH"
+if [ "$latest" != "$base" ]; then
+  echo "now push the rebased branch: git push --force-with-lease origin $BRANCH"
+  notify "socai $latest installed with the patch. Push: git push --force-with-lease origin $BRANCH"
+else
+  notify "patched socai $latest reinstalled (installed binary was not patched)."
+fi
 exit 0
