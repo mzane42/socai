@@ -10,6 +10,12 @@
 # Never pushes. After a rebase, push yourself: git push --force-with-lease origin fix/tiktok-sidebar-search
 set -euo pipefail
 
+# DEPRECATED 2026-10-06: upstream socai v0.6.4 (#372) accepts the /search?q= URL as query
+# proof, which is what our patch did. ~/.socai/bin/socai is the official release again and
+# the launchd job is disabled (plist renamed *.deprecated). Kept as an archive only.
+echo "local-update.sh is deprecated: upstream v0.6.4 (#372) fixed the TikTok search; use the official release." >&2
+exit 1
+
 BRANCH=fix/tiktok-sidebar-search
 BIN="$HOME/.socai/bin/socai"
 MARKER='URL also proves the query'   # comment embedded in the patched page_scripts.js
